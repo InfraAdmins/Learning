@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  traefik:
+    image: traefik:latest
+    container_name: traefik
+    ports:
+      - "8080:80"
+      - "8443:443"
+      - "8081:8080" # Dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik.yml:/etc/traefik/traefik.yml
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+    labels:
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.local`)"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.entrypoints=web"
+      - "traefik.http.routers.dashboard.middlewares=auth"
+      - "traefik.http.middlewares.auth.basicauth.users=admin:$$apr1$$9Cv/OMGj$$ZomWQzuQbL.3TRF81WQSn0" # Password=password
+
+  gitlab:
+    image: sameersbn/gitlab:latest
+    container_name: gitlab
+    restart: always
+    environment:
+      - GITLAB_SECRETS_DB_KEY_BASE=960c51d144bde8120dbacae2532c2fbc94fa452c23b92aeceeeb58cee83625bd48471f7c5fa0cd62a33c47faee1a799aab489fbcc06189c37675fccee311079b
+      - GITLAB_SECRETS_SECRET_KEY_BASE=960c51d144bde8120dbacae2532c2fbc94fa452c23b92aeceeeb58cee83625bd48471f7c5fa0cd62a33c47faee1a799aab489fbcc06189c37675fccee311079b
+      - GITLAB_SECRETS_OTP_KEY_BASE=960c51d144bde8120dbacae2532c2fbc94fa452c23b92aeceeeb58cee83625bd48471f7c5fa0cd62a33c47faee1a799aab489fbcc06189c37675fccee311079b
+      - GITLAB_HOST=gitlab.example.com
+      - GITLAB_ROOT_PASSWORD=Kk12345678
+      - GITLAB_ROOT_EMAIL=root@example.com
+      - DB_TYPE=postgres
+      - DB_HOST=postgresql
+      - DB_NAME=gitlabhq_production
+      - DB_USER=gitlab
+      - DB_PASS=gitlab
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - gitlab_data:/home/git/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.gitlab.rule=Host(`192.168.31.2`)"
+      - "traefik.http.routers.gitlab.entrypoints=web"
+      - "traefik.http.services.gitlab.loadbalancer.server.port=80"
+
+  gitlab-runner:
+    image: gitlab/gitlab-runner:alpine
+    container_name: gitlab-runner
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - gitlab_runner_config:/etc/gitlab-runner
+    depends_on:
+      - gitlab
+
+  postgresql:
+    image: postgres:16-alpine
+    container_name: postgresql
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_USER: gitlab
+      POSTGRES_PASSWORD: gitlab
+      POSTGRES_DB: gitlabhq_production
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:6-alpine
+    restart: always
+    volumes:
+      - redis_data:/data
+
+volumes:
+  gitlab_data:
+  gitlab_runner_config:
+  postgresql_data:
+  redis_data:
